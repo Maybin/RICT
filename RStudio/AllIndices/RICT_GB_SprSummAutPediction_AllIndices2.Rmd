@@ -1,0 +1,548 @@
+#--- ###########################################
+#--- title: "RICT IV All INDICES SUMMER, SPRING AND AUTUMN ONLY version 1"
+#--- output: html_document
+#--- Author: Dr K. M Muyeba aka Maybin 
+#--- #########################################
+
+  ####################################################################################################################################
+  # This R Script is a prediction engine for ALL INDICES in RICT IV 
+  # Initially there are 80 indices (including) BMWP, LIFE,PSI, ePSI etc
+  # 
+  #################################################################################################################################### 
+ 
+
+```{r}
+# 
+#  This section reads in Environmental Base data from Biosys i.e. containing columns "SITE","Year","NGR", "Easting","Northing", .., "CONDUCTIVITY"
+#  Converts some of the raw input, and converts Lat/Long into National Grid Reference
+# also reads biological
+#
+
+start_time <- proc.time()
+
+require(readxl) # requires tidyverse
+library(rnrfa) # National River Flow Architecture 
+#install.packages("rnrfa")
+library(dplyr)
+library(magrittr)
+library(data.table)
+
+path <- "C:/DEFRA/Phase2/RICT"
+setwd(path)
+resultsPath <- "C:/DEFRA/Phase2/RICT/RStudio/AllIndices/Results"
+
+source(paste0(path,"/supportfunctions/MeanAirTempAirTempRangeASFunction_new.R"))
+source(paste0(path,"/supportfunctions/HelperFunctionsv1.R"))
+source(paste0(path,"/supportfunctions/PredictionfunctionsV2.R"))
+
+model <- c("RIVPACS IV GB") # Change in AZURE
+ 
+# The new input file has - Environmental data, and Biological data, a 
+# Convert some of the columns to character - Easting, Northing, and SITE
+
+ 
+# New National data for testing
+#raw.input.data <- read.csv(paste0(path, "/datafiles/NewRICTtestData_v1_NRW.csv"))
+
+# RUN the CLEAN National classification DATA
+#raw.input.data <- read.csv(paste0(path, "/datafiles/NewRICTtestData_v1_NRW.csv"))
+
+#MultiYear data
+#raw.input.data <- read.csv(paste0(path, "/datafiles/New_Input_file_Data_to_use_multi_year.csv"))
+
+# Extra Testing 
+# 
+#raw.input.data <- read.csv(paste0(path, "/New_Input_file_wValidation_wTestData_warn_limits.csv"))
+
+#*** Test main default test data with 24 sites
+  # raw.input.data <- read.csv(paste0(path, "/datafiles/New Input file wValidation wTestData.csv"))
+
+# *** Test main default test data with sites 240 
+#raw.input.data <- read.csv(paste0(path, "/datafiles/New Input file wValidation wTestData-test.csv"))
+
+#@@@@@@@
+# New read test with fread 24 sites
+raw.input.data <- readCSVFile(paste0(path, "/datafiles/New Input file wValidation wTestData_12sites.csv"))
+
+# test with fread 240 sites
+#raw.input.data <- readCSVFile(paste0(path, "/datafiles/New Input file wValidation wTestData-test.csv"))
+
+#Test Nicks data
+#raw.input.data <- read.csv(paste0(path,"/InputTest_File_Nick.csv"))
+
+#Test Nicks data - bad eggs
+#raw.input.data <- read.csv(paste0(path,"/BadEggs.csv"))
+
+# Test JDBowkers data
+#raw.input.data <- read.csv(paste0(path, "/RICT Extract ptowhag.csv"))
+
+
+#Rename the column 1 from ?..SITE to "SITE"
+colnames(raw.input.data)[1]  <- c("SITE") # change AZURE
+raw.input.data$SITE <- as.character(raw.input.data$SITE) # change AZURE
+
+
+#raw.input.data$SITE     <- as.character(raw.input.data$SITE)
+# This part not necessary for RStudio, but for Machine Learning Studio
+# check for length <5, add a "0" to get proper Easting/Northing 5 digit codes
+
+raw.input.data$Easting  <- getCorrectCodes(raw.input.data$Easting)   # Change AZURE
+raw.input.data$Northing <- getCorrectCodes(raw.input.data$Northing)  # Change AZURE
+
+# Change all column names to uppercase
+names(raw.input.data) <- toupper(names(raw.input.data)) # change AZURE
+ 
+# Get all the bioligical data, including WaterBody, YEAR, CHANGE AZURE !!!TODAY
+
+# new fread
+namesBiological <-    c(colnames(raw.input.data)[1], colnames(raw.input.data)[2],colnames(raw.input.data)[3],"SPR_SEASON_ID", "SPR_TL2_WHPT_ASPT (ABW,DISTFAM)","SPR_TL2_WHPT_NTAXA (ABW,DISTFAM)", "SPR_NTAXA_BIAS", "SUM_SEASON_ID", "SUM_TL2_WHPT_ASPT (ABW,DISTFAM)","SUM_TL2_WHPT_NTAXA (ABW,DISTFAM)", "SUM_NTAXA_BIAS", "AUT_SEASON_ID", "AUT_TL2_WHPT_ASPT (ABW,DISTFAM)","AUT_TL2_WHPT_NTAXA (ABW,DISTFAM)","AUT_NTAXA_BIAS")
+
+
+#old
+#biologicalData <- raw.input.data[,namesBiological] # 
+
+#new
+biologicalData <- raw.input.data[,..namesBiological, with = FALSE] # 
+
+# Add failed sites; raw.input.data[raw.input.data$SITE==this_failing$SITE,]
+
+# Choose the seasons to run 
+# SEASONS_TO_RUN <- c(raw.input.data$SPR_SEASON_ID[1],raw.input.data$AUT_SEASON_ID[1]) # change AZURE, SPR and AUT
+SEASONS_TO_RUN <- c(raw.input.data$SPR_SEASON_ID[1], raw.input.data$SUM_SEASON_ID[1], raw.input.data$AUT_SEASON_ID[1]) # change AZURE
+
+```
+
+# Data validation and conversion
+# 0. Validation of Various Env. variables before transformation
+
+
+```{r}
+
+raw.input.data <- validateEnvData (raw.input.data) # Change in AZURE
+
+```
+
+# Data validation
+# 1. MEAN_WIDTH, lower_bound=0.4, upper_bound=117 # Check value of 0.3 = "WARN"
+
+```{r}
+
+valid_mean_width <- data.frame(log=as.numeric(), msg=as.character())
+
+for(i in 1:nrow(raw.input.data)){
+  valid_mean_width <- rbind(valid_mean_width,getValidEnvInput(raw.input.data$MEAN_WIDTH[i], 0.4, 117, "MEAN_WIDTH"))
+}
+# Change column names to suit env variable name, and cbind to original dataset
+colnames (valid_mean_width) <- paste0("mn_width_",noquote(colnames(valid_mean_width)))
+raw.input.data <- cbind(raw.input.data, valid_mean_width)
+
+```
+
+# Data validation
+# 2. MEAN_DEPTH, lower_bound=1.7, upper_bound=300 " now 999" ???
+# Fails at < 0
+
+```{r}
+
+valid_mean_depth <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+  valid_mean_depth <- rbind(valid_mean_depth,getValidEnvInput(raw.input.data$MEAN_DEPTH [i], 1.7, 300, "MEAN_DEPTH"))
+} # From 300 to 999
+colnames (valid_mean_depth) <- paste0("mn_depth_",noquote(colnames(valid_mean_depth)))
+raw.input.data <- cbind(raw.input.data, valid_mean_depth)
+
+```
+
+# Data validation
+# 3. SLOPE, lower_bound=0.1, upper_bound=150
+```{r}
+
+valid_slope <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+  valid_slope <- rbind(valid_slope,getValidEnvInput(raw.input.data$SLOPE [i], 0.1, 150, "SLOPE"))
+}
+colnames (valid_slope) <- paste0("vld_slope_",noquote(colnames(valid_slope))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_slope)
+
+```
+
+# Data validation
+# 4. DIST_FROM_SOURCE, lower_bound=0.1, upper_bound=202.8 (not 999)
+
+```{r}
+
+valid_dist_src <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+  valid_dist_src <- rbind(valid_dist_src,getValidEnvInput(raw.input.data$DIST_FROM_SOURCE [i], 0.1, 202.8, "DIST_FROM_SOURCE")) # 202.8 to 999
+}
+colnames (valid_dist_src) <- paste0("vld_dist_src_",noquote(colnames(valid_dist_src))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_dist_src)
+
+```
+
+# Data validation
+# 5. ALTITUDE, has two sets of bounds, lower_bound=1, upper_bound=590, lower_low_bound=0, upper_up_bound = 1345
+[0,1345] are hard coded, could be parameterised QED
+```{r}
+
+valid_altitude <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+    valid_altitude   <- rbind(valid_altitude,getEnvVariableTwoBounds(raw.input.data$ALTITUDE [i], 1, 590, 0, 1345, "ALTITUDE"))
+    # valid_altitude <- rbind(valid_altitude,getAltitude(raw.input.data$ALTITUDE [i], 1, 590)) 
+}
+colnames (valid_altitude) <- paste0("vld_alt_src_",noquote(colnames(valid_altitude))) # vld = valid
+
+raw.input.data <- cbind(raw.input.data, valid_altitude)
+
+```
+
+# Data validation
+# 6. ALKALINITY, has bounds, lower_bound=1.2, upper_bound=366 # Now = 999
+# getLogAlkalinity <- function (hardness, calcium, conduct, alkal, lower_b, upper_b)
+
+```{r}
+
+valid_alkalinity <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+  valid_alkalinity <- rbind(valid_alkalinity,getLogAlkalinity(raw.input.data$HARDNESS[i], raw.input.data$CALCIUM[i], raw.input.data$CONDUCTIVITY[i],raw.input.data$ALKALINITY[i], 1.2, 366)) # From 300 to 999
+}
+
+#Above loop same as # 
+     #valid_alkalinity <- rbind(valid_alkalinity,(with(raw.input.data, mapply(getLogAlkalinity, HARDNESS, CALCIUM,     
+     #CONDUCTIVITY, ALKALINITY, 1.2, 366))))
+
+# thiscopy$V1$msg=="Succ"
+colnames (valid_alkalinity) <- paste0("vld_alkal_",noquote(colnames(valid_alkalinity))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_alkalinity)
+
+```
+# Data validation
+# 7. Validate SUBSTRATUM for sum of values "TOTSUB" in interval [97,103] exclussive,and MSUBSTR in interval [-8, 8]. Write to a file if errors found
+# Remove the site or records with such errors, and continue the prediction
+
+# getSubstrate <- function(bould_cob, pebbles_gr, snd, silt_cl, lower_b, upper_b) 
+
+```{r}
+valid_substrate <- data.frame(log=as.numeric(), msg=as.character()) # Note that we don't use log for calculation of substrate
+for(i in 1:nrow(raw.input.data)){
+  valid_substrate <- rbind(valid_substrate,getSubstrate (raw.input.data$BOULDER_COBBLES[i], raw.input.data$PEBBLES_GRAVEL[i], raw.input.data$SAND[i], raw.input.data$SILT_CLAY[i], 97, 103))
+}
+colnames (valid_substrate) <- paste0("vld_substr_",noquote(colnames(valid_substrate))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_substrate)
+# raw.input.data %>%    
+#   subset(total>=97 & total<=103) %>%
+#     select(-ends_with("total")) # Remove the column "total"
+
+```
+ 
+# Data validation and conversion
+# 8. Discharge category, bounds [0, 10], [1,9] inclusive. Discharge calculated from velocity if not provided using width, depth
+
+```{r}
+valid_discharge <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+  valid_discharge <- rbind(valid_discharge, getLogDischarge(raw.input.data$MEAN_DEPTH[i], raw.input.data$MEAN_WIDTH[i], raw.input.data$DISCHARGE [i], raw.input.data$VELOCITY[i],0, 10, 1,9))
+}
+colnames (valid_discharge) <- paste0("disch_",noquote(colnames(valid_discharge)))
+raw.input.data <- cbind(raw.input.data, valid_discharge)
+ 
+```
+
+# Data validation and conversion
+# 9. Calculation of Lat/Long, and validaton of LAT # 50.8, 52)) # to 48, 61)),
+# LONG  #-8, 1.4)) to # -9, 1.5))
+
+```{r}
+
+# Calculation of Lat/Long using BNG (British National Grids)
+# Use function getLatLong()
+
+#coordsystem = c("BNG", "WGS84")
+coordsystem = "WGS84"
+
+lat.long <- with(raw.input.data, getLatLong(NGR,EASTING, NORTHING, coordsystem) ) # change AZURE
+
+#### Calculate Longitude #####
+raw.input.data$LONGITUDE <- lat.long$lon
+# print(c("lat.long = ",lat.long))
+valid_longitude <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+   valid_longitude <- rbind(valid_longitude,getLongitude(raw.input.data$LONGITUDE [i], -9, 1.5))
+}
+colnames (valid_longitude) <- paste0("vld_long_src_",noquote(colnames(valid_longitude))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_longitude)
+
+#### Calculate Latitude #####
+raw.input.data$LATITUDE <- lat.long$lat
+# print(c("lat.long = ",lat.long))
+valid_latitude <- data.frame(log=as.numeric(), msg=as.character())
+for(i in 1:nrow(raw.input.data)){
+   valid_latitude <- rbind(valid_latitude,getLatitude(raw.input.data$LATITUDE [i], 48, 61)) 
+}
+colnames (valid_latitude) <- paste0("vld_lat_src_",noquote(colnames(valid_latitude))) # vld = valid
+raw.input.data <- cbind(raw.input.data, valid_latitude)
+
+
+```
+
+
+# Data validation and conversion
+# 10. Calculation of mean temperature (TMEAN), range temperature (TRANGE), using function calc.temps() from package "rnfra"
+
+```{r}
+
+#Calculate air temperature 
+# Air temp: use Cedric code
+# old
+#AirTempGrid<-read.csv(paste(paste0(path,"/"), "AirTempGrid.csv", sep=""))
+
+#new
+AirTempGrid <- readCSVFile(paste0(path, "/datafiles/AirTempGrid.csv"))
+
+# Use function getBNG()
+BNG <- with(raw.input.data, getBNG(NGR,EASTING, NORTHING, "BNG") )  # Change AZURE
+
+# Lat long used for temperature lookups, using source MeanAirTempAirTempRangeASFunction.R
+my.temperatures <- calc.temps(data.frame(
+  Site_ID   = raw.input.data$SITE,
+  Easting4  = BNG$easting/100,
+  Northing4 = BNG$northing/100,
+  stringsAsFactors = FALSE))
+#Assign to variables as appropriate
+raw.input.data$TMEAN  <- my.temperatures$TMEAN
+raw.input.data$TRANGE <- my.temperatures$TRANGE
+# Missing lookup 1425 in Easting, index at 996 of AirTemperature
+```
+# Data validation and conversion SKIP this , include all warnings in the output dataset
+# 12. Write to file all Warnings and Failrures: SITE, MSG, iterate through the list of all variables with vld
+
+```{r}
+# Deal with altitude warnings
+msg_columns <- names(select(raw.input.data, ends_with("_msg")))
+Warnings_file  <- raw.input.data[grep("Warn", raw.input.data$vld_alt_src_msg), c("SITE","YEAR",msg_columns)] # Change Azure
+#  Warnings_alt <- raw.input.data[grep("Warn", raw.input.data$vld_alt_src_msg), c("SITE","YEAR","ALTITUDE","vld_alt_src_msg")]
+write.csv(Warnings_file, file = paste0(resultsPath,"/Warnings_file_data.csv"))
+
+#Select columns only that end with "_msg"
+coln <- colnames(select(raw.input.data, ends_with("_msg")))
+# or use 
+coln <- colnames(select(raw.input.data, grep("_msg", colnames(raw.input.data))))
+
+```
+
+
+```{r}
+# Deal with all warnings, save them in a file,  
+#Same as above, but using pipes, and using all the variables
+msg_columns <- names(select(raw.input.data, ends_with("_msg")))
+this_warning <- raw.input.data %>%    
+         filter(substr(vld_alt_src_msg,1,5)=="Warn:"    | substr(mn_width_msg,1,5)=="Warn:" 
+                | substr(mn_depth_msg,1,5)=="Warn:"     | substr(vld_alkal_msg,1,5)=="Warn:"
+                | substr(disch_msg,1,5)=="Warn:"        | substr(vld_substr_msg,1,5)=="Warn:"
+                | substr(vld_dist_src_msg,1,5)=="Warn:" | substr(vld_slope_msg,1,5)=="Warn:" )%>%
+         select("SITE","YEAR",msg_columns) # Select some columns
+write.csv(this_warning, file = paste0(resultsPath,"/Warnings_file_data.csv"))
+
+```
+
+# Data validation and conversion,  
+# 13.1 Remove those instances where prediction is not runnable e.g. Fail warnings, and put these in one file with warnings
+
+```{r}
+# Deal with all failings, save them in a file
+this_failing <- raw.input.data %>%    
+         filter(substr(vld_alt_src_msg,1,5)=="Fail:"    | substr(mn_width_msg,1,5)=="Fail:" 
+                | substr(mn_depth_msg,1,5)=="Fail:"     | substr(vld_alkal_msg,1,5)=="Fail:"
+                | substr(disch_msg,1,5)=="Fail:"        | substr(vld_substr_msg,1,5)=="Fail:"
+                | substr(vld_dist_src_msg,1,5)=="Fail:" | substr(vld_slope_msg,1,5)=="Fail:" )%>%
+         select("SITE","YEAR",msg_columns) # Select some columns , CHANGE AZURE
+
+AllFails_Warings <- rbind(this_warning, this_failing)           
+writeToFile (AllFails_Warings, resultsPath, "/FinalAllFails_Warings.csv") 
+
+# Which sites have failed 
+raw.input.data[which(this_failing[1,1] %in% raw.input.data[,c("SITE")]),]
+a <-  apply(raw.input.data, 1, function(r) any(r %in% c("Fail:  SLOPE  bounds exceeded")))
+
+
+failedRows <- raw.input.data[a,]
+writeToFile (failedRows, resultsPath, "/FinalFailingSites.csv") 
+
+```
+
+# Data validation and conversion,  
+# 13.2 subset the instances to run in prediction by removing "this_failing", use anti-join i.e."Return all rows from x where there are not matching values in y, keeping just columns from x. This is a filtering join"
+
+```{r}
+final.predictors1 <- anti_join(raw.input.data, this_failing)
+#head(final.predictors1,3)
+```
+
+
+# Generate data for classification 
+ 
+```{r}
+# Final Data for classification e.g. Linear discriminant Analysis (LDA) classifier/predictor
+
+final.predictors <- data.frame(
+  SITE                     <-  final.predictors1$SITE,
+  LATITUDE                 <-  final.predictors1$LATITUDE,
+  LONGITUDE                <-  final.predictors1$LONGITUDE,
+  LOG.ALTITUDE             <-  final.predictors1$vld_alt_src_log,
+  LOG.DISTANCE.FROM.SOURCE <-  final.predictors1$vld_dist_src_log,
+  LOG.WIDTH                <-  final.predictors1$mn_width_log,
+  LOG.DEPTH                <-  final.predictors1$mn_depth_log,
+  MEAN.SUBSTRATUM          <-  final.predictors1$vld_substr_log,
+  DISCHARGE.CATEGORY       <-  final.predictors1$DISCHARGE,    #raw.input.data$disch_log,
+  ALKALINITY               <-  final.predictors1$ALKALINITY,
+  LOG.ALKALINITY           <-  final.predictors1$vld_alkal_log,
+  LOG.SLOPE                <-  final.predictors1$vld_slope_log,
+  MEAN.AIR.TEMP            <-  final.predictors1$TMEAN,
+  AIR.TEMP.RANGE           <-  final.predictors1$TRANGE
+)
+colnames(final.predictors) <- c("SITE","LATITUDE","LONGITUDE","LOG.ALTITUDE","LOG.DISTANCE.FROM.SOURCE","LOG.WIDTH","LOG.DEPTH","MEAN.SUBSTRATUM","DISCHARGE.CATEGORY","ALKALINITY","LOG.ALKALINITY", "LOG.SLOPE","MEAN.AIR.TEMP","AIR.TEMP.RANGE")
+
+```
+ 
+
+
+#  Prediction Settings
+## 1. Enter 
+```{r}
+
+# NEXT - Look for NI files
+DFMean_gd <- read.delim(paste0(path,"/datafiles/DFMEAN_GB685.DAT"), header = FALSE, sep="", as.is=TRUE)
+DFCoeff_gb685 <- read.delim(paste0(path,"/datafiles/DFCOEFF_GB685.DAT"), header = FALSE, sep="", as.is=TRUE)
+
+```
+
+#   Prediction Settings
+#2. Find the DFScores of each row using one line of coefficients DFCoeff_gb685[1,-1] # removes the first column
+
+```{r}
+
+#NRefg = number of reference sites in end group g , for GB = 43, for NI = 11
+#NRefg <- 685
+
+# Get this from the EndGrp_AssessScores.csv file
+
+# old
+ #NRefg_groups<- read.csv(paste0(path,"/EndGrp_AssessScores.csv"))
+#new
+NRefg_groups <-  readCSVFile(paste0(path, "/datafiles/EndGrp_AssessScores.csv"))
+
+NRefg_all <- rowSums(NRefg_groups[,-1])
+ 
+#DFScore_g <- DFCoef1 * Env1 + ... + DFCoefn * Envn ; remove "SITE" col=1 from final.predictors, and  remove col=1 from DFCoeff_gb685
+DFScores <- getDFScores(final.predictors, DFCoeff_gb685)
+
+# Calculate the Mahanalobis distance of point x from site g for all referene sites, and give column names
+
+### Needs vectorising for performancereasons
+MahDist_g <- getMahDist(DFScores , DFMean_gd) 
+
+MahDistNames <- c("p1","p2","p3","p4","p5","p6","p7","p8","p9","p10","p11","p12","p13","p14","p15","p16","p17","p18","p19","p20","p21","p22","p23","p24","p25","p26","p27","p28","p29","p30","p31","p32","p33","p34","p35","p36","p37","p38","p39","p40","p41","p42","p43")
+MahDistNames <- gsub("p","Mah",MahDistNames)
+colnames(MahDist_g) <- MahDistNames
+
+# for (i in 1:nrow(MahDist_g[i,]) { MahDist_g$min <- min(MahDist_g[i,]) }
+# Calculate the minimum Mahanalobis disance of point x from site g
+MahDist_min <- getMahDist_min(DFScores, DFMean_gd)
+
+# Calculate the probability distribution
+PDist_g <- PDist (NRefg_all, MahDist_g)
+
+# Main dataframe needed:: Calculate probabilities of sites belonging to the endgroups, prob_g, l,as last column 44 contains the total "PGdistTot
+PDistTot <- PDistTotal(PDist_g) ## ALL probabilities p1..pn,  rowsums() add to 1, except when last row which is "total" needs removing
+ 
+# Rename the columns to probabilities p1,p2,...,p43
+colnames(PDistTot) <- c("p1","p2","p3","p4","p5","p6","p7","p8","p9","p10","p11","p12","p13","p14","p15","p16","p17","p18","p19","p20","p21","p22","p23","p24","p25","p26","p27","p28","p29","p30","p31","p32","p33","p34","p35","p36","p37","p38","p39","p40","p41","p42","p43","Total" )
+
+# Combine with final data to see probabilities of each site wrt endGroups (43 of them, so 43 probabilites), per row
+ final.predictors_try1 <- cbind(final.predictors, PDistTot[,-ncol(PDistTot)]) # sum(final.predictors_try[1,-c(1:14)]) should give 1
+
+```
+
+#3.Use chisquare to find suitability codes. Start for Britain GB
+# 1 = GB 21.02606 24.05393 26.21696 32.90923 
+# 2 = NI 18.30700 21.16080 23.20930 29.58830
+# Could use a file for these chisquare values
+
+```{r}
+# Enter these as csv file
+chiSquare_vals <- data.frame(CQ1=c(21.02606, 18.30700), CQ2=c(24.05393,21.16080), CQ3=c(26.21696,23.20930), CQ4=c(32.90923,29.58830))
+suitCodes <- getSuitabilityCode(MahDist_min, chiSquare_vals)
+# add suitab ility codes to the final data, using cbind 
+final.predictors_try2 <- as.data.frame(cbind(final.predictors_try1, suitCodes))
+# Write to csv
+# write.csv(final.predictors_try2, file = "finalPredictors_suitability.csv")
+rm(final.predictors_try1)
+```
+
+# Find max class group belongs to by getting the column name: use
+# colnames(final.predictors_try[,15:57])[apply(final.predictors_try[,15:57], 1, which.max)]
+
+```{r}
+# Basically search for the start of probability columns - 15:57 using an abstraction of or grep, or match or ends_with in dplyr
+ 
+# BelongsTo_endGrp <- colnames(final.predictors_try2[,15:57])[apply(final.predictors_try2[,15:57], 1, which.max)] # This sometimes returns a list, use unlist below to repair this
+BelongsTo_endGrp <- colnames(final.predictors_try2[,15:57])[apply(data.frame(matrix(unlist(final.predictors_try2[,15:57]), nrow=nrow(final.predictors_try2[,15:57]), byrow=T),stringsAsFactors=FALSE), 1, which.max)]
+
+# Relace p with EndGr
+BelongsTo_endGrp <- gsub("p","EndGr",BelongsTo_endGrp)
+
+final.predictors_try2 <- cbind(final.predictors_try2, BelongsTo_endGrp)
+ 
+```  
+# NEXT - Correct all the WAY UP *******************
+
+#4 Prediction: WE1.5 Algorithms for prediction of expected values of any index based on probability of end group 
+# membership and average values of the index amongst reference sites in each end group. Algorithms for taxonomic 
+# prediction (including prediction of occurrence and expected abundances
+# Start with END_GROUP_INDEX prediction
+
+```{r}
+# Calculations for TL2 WHPT NTAXA, ASPT for spring and autumn
+# endroup_IndexDFrame     <- read.csv(paste0(path,"/EndGrpMeans_TL2.csv"), header = TRUE) # or use "x103EndGroupMeans(FORMATTED)"
+
+filepathname <- paste0(path,"/datafiles/x103EndGroupMeans(FORMATTED)(v.JDB17Dec2019).csv") # x103EndGroupMeans(FORMATTED).csv")
+
+# new use fread and data table
+endgroup_IndexFrame <- getEndGroupMeans_dtableCopy (filepathname, model) # Change in AZURE, allIndices needs 80 indices, not just WHPT ??? change function in PredictionfunctionsV2.R ??
+# Sort by the columns "EndGrp", "SeasonCode" - Note that we could choose no to sort if its just summer
+endgroup_IndexFrame <- arrange(endgroup_IndexFrame, EndGrp, SeasonCode) 
+
+# Prepare what you want to run - seasons, indices, and subset the data with the seasonCodes
+
+endgroup_IndexFrame <- filter(endgroup_IndexFrame, SeasonCode %in% SEASONS_TO_RUN) # CORRECT allIndices
+
+# Select the indices to run, remove columns 1,2,3 and 84
+indices_to_run <- names(endgroup_IndexFrame)[c(-1,-2,-3)] #CHANGE THESE TO 80 allIndices - 
+
+        # This step below gives you the indices to run on season==1
+        allIndices_values <- filter(endgroup_IndexFrame,SeasonCode==1)[,indices_to_run]
+        # Multiply these with ProbScores, maybe write a new getSeasonIndexScoresV2()
+
+# Run the index Scores   
+mainData <- getSeasonIndexScores_new (final.predictors_try2, SEASONS_TO_RUN, indices_to_run, endgroup_IndexFrame, model) # Change in AZURE
+
+# Remove failing sites from biologicalData: 
+# BUG, changed to anti-join. Watch in AZURE the anti-join
+          # OLD # biologicalData <- biologicalData[!(biologicalData$SITE %in% this_failing$SITE),]
+biologicalData <-  anti_join(biologicalData, this_failing)
+#remove column site 
+biologicalData <- biologicalData[,-1]
+      
+      # We dont need to bind as there is no classification
+      #mainData <- cbind(mainData, biologicalData)
+writeToFile (mainData, resultsPath, "/FinalPredictions_AllIndices_data.csv") 
+
+end_time <- proc.time()
+print(" Time diff =")
+print(end_time-start_time)
+
+#NEXT - Tomorrow All raw values are correct *************
+
+```
+
+ 
