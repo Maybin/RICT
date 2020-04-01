@@ -1,0 +1,38 @@
+
+Improve performance by
+- Function call at registry level
+- Check perormance by rProfiler or 
+- Check profiling in Rstudio by "Profile"
+- Use lapply, sapply, as optimised vectorised operations instead of FOR lops
+- use data.table for large operations 
+- Use  
+library(foreach)
+library(doSNOW)
+library(parallel)
+
+
+Performance improvement of RICT using logical file reader data structures and vectorised functions - RSTUDIO
+
+							24 sites	240 sites
+
+old-Maybin Summer GB Prediction		9.41s		46.92s	
+new-Maybin Summer GB Prediction		8.39s		10.99s
+% increase speedup				10%		76.57%			
+
+
+new-Tim Summer GB Classification		7.89		17.66s	
+new-Maybin Summer GB Classification	5.46		12.61s	
+% increase speedup				30.79%	28.6%		
+
+
+Performance improvement of RICT using logical file reader data structures and vectorised functions - AZURE
+
+							24 sites	240 sites
+
+old-Maybin Summer GB Prediction		?????		??
+new-Maybin Summer GB Prediction		9.66s		??	
+
+
+
+old-Maybin Summer GB Classification	????		??
+new-Maybin Summer GB Classification	2.47s

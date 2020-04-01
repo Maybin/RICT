@@ -1,0 +1,26 @@
+RICT-GB models
+--------------
+
+
+RICT-GB - Summer Single Year (Done)
+
+https://gallery.cortanaintelligence.com/Experiment/RICT-GB-PredictionAndClassification-SingleYearSummerV4
+
+
+RICT-GB - Spr Aut Single Year 
+
+https://gallery.cortanaintelligence.com/Experiment/RICT-GB-PredictionClassificationSingleYearSprAutV2-2
+
+
+RICT-GB - Spr Aut Multi Year (Done)
+
+https://gallery.cortanaintelligence.com/Experiment/RICT-GB-PredictionAndClassification-MultiYearSprAutV3
+
+RICT - NI
+----------
+
+RICT-NI- Spr Aut Single Year 
+??
+
+RICT-NI- Summer Single Year 
+??
